@@ -1,0 +1,12 @@
+# Python cache
+__pycache__/
+*.pyc
+
+# OS files
+.DS_Store
+
+# Editor files
+.vscode/
+
+# Logs / temp
+*.log
