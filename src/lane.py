@@ -17,3 +17,6 @@ class Lane:
 
     def is_empty(self):
         return self.queue.is_empty()
+    
+    def queue_size(self):
+        return self.queue.size()
