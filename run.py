@@ -1,5 +1,5 @@
 """
-Main runner file to check project progress.
+Main runner file to check project progress .
 This file will evolve as more components are added.
 """
 
@@ -11,9 +11,9 @@ import time
 def print_status(lane, step):
     print(f"\n--- Step {step} ---")
     vehicles = [v.vehicle_id for v in lane.queue.items]
-    print(f"Lane: {lane.lane_id}")
+    print(f"Lane name: {lane.name}")
     print(f"Queue size: {lane.size()}")
-    print(f"Vehicles: {vehicles}")
+    print(f"Vehicles in queue: {vehicles}")
     print("-" * 30)
 
 
@@ -23,7 +23,7 @@ def run_simulation():
     # Create a lane
     lane = Lane("Lane-A")
 
-    # Add some vehicles initially
+    # Add vehicles
     lane.add_vehicle(Vehicle(1))
     lane.add_vehicle(Vehicle(2))
     lane.add_vehicle(Vehicle(3))
