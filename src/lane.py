@@ -3,15 +3,19 @@ from src.traffic_light import TrafficLight
 
 
 class Lane:
-    
+
     def __init__(self, lane_id, queue):
         self.lane_id = lane_id
         self.queue = queue
+        self.light = TrafficLight()
+
 
     def add_vehicle(self, vehicle):
         self.queue.enqueue(vehicle)
 
     def process_vehicle(self):
+        if not self.light.is_green():
+            return None
         if self.queue.is_empty():
             return None
         return self.queue.dequeue()
