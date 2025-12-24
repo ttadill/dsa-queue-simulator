@@ -1,8 +1,4 @@
-"""
-Main runner file to check project progress .
-This file will evolve as more components are added.
-"""
-
+from src.queue import Queue
 from src.lane import Lane
 from src.vehicle import Vehicle
 import time
@@ -11,17 +7,18 @@ import time
 def print_status(lane, step):
     print(f"\n--- Step {step} ---")
     vehicles = [v.vehicle_id for v in lane.queue.items]
-    print(f"Lane name: {lane.name}")
-    print(f"Queue size: {lane.size()}")
+    print(f"Lane ID: {lane.lane_id}")
+    print(f"Queue size: {lane.queue_size()}")
     print(f"Vehicles in queue: {vehicles}")
     print("-" * 30)
 
 
 def run_simulation():
-    print("Starting basic traffic simulation (Day 2)\n")
+    print("Starting basic traffic simulation (Day 2 / Day 3)\n")
 
-    # Create a lane
-    lane = Lane("Lane-A")
+    # Create queue and lane
+    queue = Queue()
+    lane = Lane("Lane-A", queue)
 
     # Add vehicles
     lane.add_vehicle(Vehicle(1))
