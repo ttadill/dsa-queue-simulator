@@ -1,8 +1,10 @@
 # simulation.py
 import pygame
 import random
-from src.intersection import Intersection
+from src.queue import Queue
+from src.lane import Lane
 from src.vehicle import Vehicle
+from src.intersection import Intersection
 
 # ---------------- CONFIG ----------------
 WIDTH, HEIGHT = 1000, 800
@@ -16,9 +18,7 @@ TEXT_COLOR = (200, 200, 200)
 
 
 class VisualVehicle:
-    """
-    Wraps your existing Vehicle for Pygame visualization.
-    """
+    """Wrap your existing Vehicle for Pygame visuals."""
     def __init__(self, vehicle, road_id, index_in_queue):
         self.vehicle = vehicle
         self.road_id = road_id
@@ -50,7 +50,6 @@ class VisualVehicle:
     def update(self, is_green, front_pos=None):
         move_distance = pygame.Vector2(self.speed, 0).rotate(-self.angle)
         if front_pos:
-            # stop if too close to front vehicle
             if self.pos.distance_to(front_pos) < 50:
                 return
         if is_green:
@@ -64,9 +63,7 @@ class VisualVehicle:
 
 
 class Simulation:
-    """
-    Pygame visual simulation integrating your existing Intersection and Lanes.
-    """
+    """Pygame visual simulation integrating your existing Intersection and Lanes."""
     def __init__(self):
         pygame.init()
         self.screen = pygame.display.set_mode((WIDTH, HEIGHT))
@@ -75,23 +72,33 @@ class Simulation:
         self.font = pygame.font.SysFont("Arial", 28)
 
         self.roads = ["A", "B", "C", "D"]
-        self.current_green = "A"
         self.green_timer = 0
         self.green_duration = 200  # frames (~3s)
+        self.current_green = "A"
 
-        # Your existing intersection logic
-        self.intersection = Intersection()
+        # Create queues and lanes
+        self.queues = {r: Queue() for r in self.roads}
+        self.lanes = {r: Lane(r, self.queues[r]) for r in self.roads}
 
-        # Wrap vehicles in VisualVehicle objects
+        # Initialize intersection with lanes
+        self.intersection = Intersection(self.lanes)
+
+        # Spawn some demo vehicles in each lane
+        vid = 1
+        for road in self.roads:
+            for _ in range(3):
+                v = Vehicle(vid)
+                self.lanes[road].add_vehicle(v)
+                vid += 1
+
+        # Create visual vehicle wrappers
         self.visual_vehicles = {r: [] for r in self.roads}
         self.sync_visuals_with_lanes()
 
     def sync_visuals_with_lanes(self):
-        """
-        Wrap vehicles in visual objects based on lane queues.
-        """
+        """Wrap vehicles in visual objects based on lane queues."""
         for road in self.roads:
-            lane_queue = self.intersection.lanes[road].queue
+            lane_queue = self.lanes[road].queue.items
             self.visual_vehicles[road] = [
                 VisualVehicle(v, road, i) for i, v in enumerate(lane_queue)
             ]
@@ -107,7 +114,7 @@ class Simulation:
     def draw_queue_info(self):
         y = 20
         for road in self.roads:
-            count = len(self.intersection.lanes[road].queue)
+            count = self.lanes[road].queue_size()
             text = self.font.render(f"Lane {road} Queue: {count}", True, TEXT_COLOR)
             self.screen.blit(text, (20, y))
             y += 35
@@ -127,11 +134,11 @@ class Simulation:
             self.draw_queue_info()
 
             # Update intersection logic
-            self.intersection.update()  # your existing method
+            self.intersection.update()
 
             # Update visuals
             for road in self.roads:
-                lane_queue = self.intersection.lanes[road].queue
+                lane_queue = self.lanes[road].queue.items
                 visual_list = self.visual_vehicles[road]
 
                 for idx, car in enumerate(visual_list):
@@ -140,7 +147,7 @@ class Simulation:
                     car.update(is_green, front_pos)
                     car.draw(self.screen, is_green)
 
-                # Remove vehicles that exited the screen (dequeue)
+                # Remove vehicles that left the screen
                 self.visual_vehicles[road] = [
                     v for v in visual_list
                     if -100 < v.pos.x < WIDTH + 100 and -100 < v.pos.y < HEIGHT + 100
