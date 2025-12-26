@@ -18,7 +18,7 @@ TEXT_COLOR = (200, 200, 200)
 
 
 class VisualVehicle:
-    """Wrap your existing Vehicle for Pygame visuals."""
+    """Wraps your existing Vehicle for Pygame visuals."""
     def __init__(self, vehicle, road_id, index_in_queue):
         self.vehicle = vehicle
         self.road_id = road_id
@@ -49,9 +49,8 @@ class VisualVehicle:
 
     def update(self, is_green, front_pos=None):
         move_distance = pygame.Vector2(self.speed, 0).rotate(-self.angle)
-        if front_pos:
-            if self.pos.distance_to(front_pos) < 50:
-                return
+        if front_pos and self.pos.distance_to(front_pos) < 50:
+            return
         if is_green:
             self.pos += move_distance
 
@@ -63,7 +62,7 @@ class VisualVehicle:
 
 
 class Simulation:
-    """Pygame visual simulation integrating your existing Intersection and Lanes."""
+    """Pygame visual simulation for your traffic system."""
     def __init__(self):
         pygame.init()
         self.screen = pygame.display.set_mode((WIDTH, HEIGHT))
@@ -71,6 +70,7 @@ class Simulation:
         self.clock = pygame.time.Clock()
         self.font = pygame.font.SysFont("Arial", 28)
 
+        # Roads and green light control
         self.roads = ["A", "B", "C", "D"]
         self.green_timer = 0
         self.green_duration = 200  # frames (~3s)
@@ -80,7 +80,7 @@ class Simulation:
         self.queues = {r: Queue() for r in self.roads}
         self.lanes = {r: Lane(r, self.queues[r]) for r in self.roads}
 
-        # Initialize intersection with lanes
+        # Initialize Intersection with lanes
         self.intersection = Intersection(self.lanes)
 
         # Spawn some demo vehicles in each lane
@@ -91,7 +91,7 @@ class Simulation:
                 self.lanes[road].add_vehicle(v)
                 vid += 1
 
-        # Create visual vehicle wrappers
+        # Create visual wrappers
         self.visual_vehicles = {r: [] for r in self.roads}
         self.sync_visuals_with_lanes()
 
@@ -126,6 +126,11 @@ class Simulation:
             idx = self.roads.index(self.current_green)
             self.current_green = self.roads[(idx + 1) % len(self.roads)]
 
+    def process_lanes(self):
+        """Process one vehicle per lane each step (like your old text simulation)."""
+        for lane in self.lanes.values():
+            lane.process_vehicle()  # assumes Lane has a process_vehicle() method
+
     def run(self):
         running = True
         while running:
@@ -133,8 +138,8 @@ class Simulation:
             self.draw_roads()
             self.draw_queue_info()
 
-            # Update intersection logic
-            self.intersection.update()
+            # Process vehicles in lanes
+            self.process_lanes()
 
             # Update visuals
             for road in self.roads:
@@ -147,7 +152,7 @@ class Simulation:
                     car.update(is_green, front_pos)
                     car.draw(self.screen, is_green)
 
-                # Remove vehicles that left the screen
+                # Remove vehicles that exited screen
                 self.visual_vehicles[road] = [
                     v for v in visual_list
                     if -100 < v.pos.x < WIDTH + 100 and -100 < v.pos.y < HEIGHT + 100
