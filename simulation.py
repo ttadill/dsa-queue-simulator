@@ -72,12 +72,20 @@ class VisualVehicle:
     def spawn_angle(self):
         return {"A": 270, "B": 180, "C": 90, "D": 0}[self.road_id]
 
-    def update(self, is_green, front_pos=None):
-        move_distance = pygame.Vector2(self.speed, 0).rotate(-self.angle)
-        if front_pos and self.pos.distance_to(front_pos) < 50:
-            return
-        if is_green:
-            self.pos += move_distance
+    def update(self, current_green, green_lanes, front_pos=None):
+    # Only L2 lanes stop for traffic lights; other lanes move normally
+    is_green = (self.road_id in green_lanes and self.lane_id == "L2")
+
+    move_distance = pygame.Vector2(self.speed, 0).rotate(-self.angle)
+
+    # Stop if too close to front vehicle in the same lane
+    if front_pos and self.pos.distance_to(front_pos) < 40:
+        return
+
+    # Move if lane is green or non-priority
+    if is_green or self.lane_id != "L2":
+        self.pos += move_distance
+
 
     def draw(self, surf, is_green):
         rect = pygame.Rect(0, 0, 40, 24)
@@ -100,25 +108,26 @@ class Intersection:
             self.lanes[r]["L2"].light = TrafficLight(self.green_duration, self.green_duration)
 
     def update(self):
-        # Check if priority lane AL2 needs green
-        priority_lane = self.lanes["A"]["L2"]
-        if priority_lane.queue_size() > 10:
-            self.current_green = "A"
-            self.green_duration = max(priority_lane.queue_size() * T_PER_VEHICLE, 200)
-            priority_lane.light.state = "GREEN"
-            priority_lane.light.timer = 0
-        else:
-            # Normal round-robin
-            self.green_timer += 1
-            if self.green_timer > self.green_duration:
-                self.green_timer = 0
-                # Switch green lane
-                self.current_idx = (self.current_idx + 1) % len(self.road_order)
-                self.current_green = self.road_order[self.current_idx]
-                lane = self.lanes[self.current_green]["L2"]
-                self.green_duration = max(lane.queue_size() * T_PER_VEHICLE, 50)
-                lane.light.state = "GREEN"
-                lane.light.timer = 0
+    # Priority check for AL2
+    priority_lane = self.lanes["A"]["L2"]
+    if priority_lane.queue_size() > 10:
+        self.current_green = "A"
+        self.green_duration = max(priority_lane.queue_size() * 20, 50)
+    else:
+        # Normal round-robin
+        self.green_timer += 1
+        if self.green_timer > self.green_duration:
+            self.green_timer = 0
+            self.current_idx = (self.current_idx + 1) % len(self.road_order)
+            self.current_green = self.road_order[self.current_idx]
+            lane = self.lanes[self.current_green]["L2"]
+            self.green_duration = max(lane.queue_size() * 20, 50)
+
+    # Process vehicles in all lanes (not just current green)
+    for r in self.roads:
+        for l in ["L1","L2","L3"]:
+            self.lanes[r][l].process_vehicle()
+
 
         # Set other lanes' lights to red
         for r in self.road_order:
@@ -216,15 +225,19 @@ class Simulation:
 
             # Update visuals
             for r in self.roads:
-                for l in ["L1","L2","L3"]:
-                    lane_queue = self.lanes[r][l].queue.items
-                    visual_list = self.visual_vehicles[r][l]
+    for l in ["L1","L2","L3"]:
+        lane_queue = self.lanes[r][l].queue.items
+        visual_list = self.visual_vehicles[r][l]
 
-                    for idx, car in enumerate(visual_list):
-                        is_green = (r == self.intersection.current_green and l=="L2")
-                        front_pos = visual_list[idx-1].pos if idx>0 else None
-                        car.update(is_green, front_pos)
-                        car.draw(self.screen, is_green)
+        for idx, car in enumerate(visual_list):
+            front_pos = visual_list[idx-1].pos if idx>0 else None
+            car.update(
+                current_green=self.intersection.current_green,
+                green_lanes=[self.intersection.current_green],
+                front_pos=front_pos
+            )
+            car.draw(self.screen, is_green=(car.lane_id=="L2" and r==self.intersection.current_green))
+
 
                     # Remove vehicles that left screen
                     self.visual_vehicles[r][l] = [
