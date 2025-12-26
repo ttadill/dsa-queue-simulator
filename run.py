@@ -1,6 +1,7 @@
 from src.queue import Queue
 from src.lane import Lane
 from src.vehicle import Vehicle
+from src.metrics import Metrics
 from src.intersection import Intersection
 import time
 
@@ -16,12 +17,13 @@ def print_status(lanes, step):
 
 
 def run_simulation():
-    print("Starting traffic simulation (Day 4)\n")
+    print("Starting traffic simulation (Day 4 / Day 5)\n")
 
-    # Create queues and lanes
+    # Create queues
     queue_a = Queue()
     queue_b = Queue()
 
+    # Create lanes
     lane_a = Lane("Lane-A", queue_a)
     lane_b = Lane("Lane-B", queue_b)
 
@@ -35,6 +37,7 @@ def run_simulation():
 
     step = 0
     current_lane = 0
+    metrics = Metrics()
 
     while not all(lane.is_empty() for lane in lanes):
         step += 1
@@ -42,14 +45,20 @@ def run_simulation():
 
         lane = lanes[current_lane]
         processed = lane.process_vehicle()
-        print(f"Processed vehicle from {lane.lane_id}: {processed}")
 
-        # move to next lane
+        if processed:
+            metrics.record_vehicle()
+            print(f"Processed vehicle from {lane.lane_id}: {processed}")
+        else:
+            print(f"No vehicle processed from {lane.lane_id}")
+
+        # Move to next lane (round-robin)
         current_lane = (current_lane + 1) % len(lanes)
 
         time.sleep(1)
 
-    print("\nSimulation complete. All lanes are empty.")
+    print("\nSimulation complete.")
+    metrics.print_summary()
 
 
 if __name__ == "__main__":
