@@ -72,26 +72,24 @@ class VisualVehicle:
     def spawn_angle(self):
         return {"A": 270, "B": 180, "C": 90, "D": 0}[self.road_id]
 
-    def update(self, current_green, green_lanes, front_pos=None):
-    # Only L2 lanes stop for traffic lights; other lanes move normally
-    is_green = (self.road_id in green_lanes and self.lane_id == "L2")
+    def update(self, is_green, front_pos=None):
+        """Move the vehicle if the light is green and there’s space ahead."""
+        move_distance = pygame.Vector2(self.speed, 0).rotate(-self.angle)
 
-    move_distance = pygame.Vector2(self.speed, 0).rotate(-self.angle)
+        # Stop if too close to the vehicle in front
+        if front_pos and self.pos.distance_to(front_pos) < 50:
+            return
 
-    # Stop if too close to front vehicle in the same lane
-    if front_pos and self.pos.distance_to(front_pos) < 40:
-        return
-
-    # Move if lane is green or non-priority
-    if is_green or self.lane_id != "L2":
-        self.pos += move_distance
-
+        # Move only if green light
+        if is_green:
+            self.pos += move_distance
 
     def draw(self, surf, is_green):
         rect = pygame.Rect(0, 0, 40, 24)
         rect.center = self.pos
         color = self.color if is_green else (180, 180, 180)
         pygame.draw.rect(surf, color, rect, border_radius=5)
+
 
 
 class Intersection:
@@ -139,118 +137,41 @@ class Intersection:
         self.lanes[self.current_green]["L2"].process_vehicle()
 
 
-class Simulation:
-    """Pygame visual simulation for traffic system."""
-    def __init__(self):
-        pygame.init()
-        self.screen = pygame.display.set_mode((WIDTH, HEIGHT))
-        pygame.display.set_caption("Traffic Simulation – Priority Queue with Lights")
-        self.clock = pygame.time.Clock()
-        self.font = pygame.font.SysFont("Arial", 28)
+def run(self):
+    running = True
+    while running:
+        # Update intersection logic
+        self.intersection.update()
 
-        self.roads = ["A", "B", "C", "D"]
+        # Draw roads and queue info
+        self.draw_roads()
+        self.draw_queue_info()
 
-        # Create 3 lanes per road
-        self.lanes = {}
+        # Update vehicle visuals
         for r in self.roads:
-            self.lanes[r] = {
-                "L1": Lane(f"{r}L1", Queue()),
-                "L2": Lane(f"{r}L2", Queue()),  # L2 is priority for A
-                "L3": Lane(f"{r}L3", Queue())
-            }
+            for l in ["L1", "L2", "L3"]:
+                visual_list = self.visual_vehicles[r][l]
 
-        # Mark AL2 as priority
-        self.lanes["A"]["L2"].queue_priority = True
+                for idx, car in enumerate(visual_list):
+                    is_green = (r == self.intersection.current_green and l == "L2")
+                    front_pos = visual_list[idx-1].pos if idx > 0 else None
+                    car.update(is_green, front_pos)
+                    car.draw(self.screen, is_green)
 
-        self.intersection = Intersection(self.lanes)
-
-        # Spawn demo vehicles
-        vid = 1
-        for r in self.roads:
-            for lane_id in ["L1","L2","L3"]:
-                lane = self.lanes[r][lane_id]
-                for _ in range(3):
-                    v = Vehicle(vid, priority=(r=="A" and lane_id=="L2"))
-                    lane.add_vehicle(v)
-                    vid += 1
-
-        # Create visual vehicles
-        self.visual_vehicles = {r: {l: [] for l in ["L1","L2","L3"]} for r in self.roads}
-        self.sync_visuals_with_lanes()
-
-    def sync_visuals_with_lanes(self):
-        for r in self.roads:
-            for l in ["L1","L2","L3"]:
-                lane_queue = self.lanes[r][l].queue.items
+                # Remove vehicles that left the screen
                 self.visual_vehicles[r][l] = [
-                    VisualVehicle(v, r, l, i) for i, v in enumerate(lane_queue)
+                    v for v in visual_list
+                    if -100 < v.pos.x < WIDTH + 100 and -100 < v.pos.y < HEIGHT + 100
                 ]
 
-    def draw_roads(self):
-        self.screen.fill(BG_GREEN)
-        cx, cy = WIDTH//2, HEIGHT//2
-        pygame.draw.rect(self.screen, ROAD_COLOR, (cx - ROAD_WIDTH//2, 0, ROAD_WIDTH, HEIGHT))
-        pygame.draw.rect(self.screen, ROAD_COLOR, (0, cy - ROAD_WIDTH//2, WIDTH, ROAD_WIDTH))
+        # Handle events
+        for event in pygame.event.get():
+            if event.type == pygame.QUIT:
+                running = False
 
-    def draw_lights(self):
-        cx, cy = WIDTH//2, HEIGHT//2
-        positions = {
-            "A": (cx, cy - ROAD_WIDTH//2 - 30),
-            "B": (cx + ROAD_WIDTH//2 + 30, cy),
-            "C": (cx, cy + ROAD_WIDTH//2 + 30),
-            "D": (cx - ROAD_WIDTH//2 - 30, cy)
-        }
-        for r in self.roads:
-            light = self.lanes[r]["L2"].light
-            color = GREEN if light.is_green() else RED
-            pos = positions[r]
-            pygame.draw.circle(self.screen, color, pos, LIGHT_RADIUS)
+        pygame.display.flip()
+        self.clock.tick(FPS)
 
-    def draw_queue_info(self):
-        y = 20
-        for r in self.roads:
-            for l in ["L1","L2","L3"]:
-                count = self.lanes[r][l].queue_size()
-                text = self.font.render(f"{r}-{l} Queue: {count}", True, TEXT_COLOR)
-                self.screen.blit(text, (20, y))
-                y += 28
-
-    def run(self):
-        running = True
-        while running:
-            self.intersection.update()
-            self.draw_roads()
-            self.draw_lights()
-            self.draw_queue_info()
-
-            # Update visuals
-            for r in self.roads:
-    for l in ["L1","L2","L3"]:
-        lane_queue = self.lanes[r][l].queue.items
-        visual_list = self.visual_vehicles[r][l]
-
-        for idx, car in enumerate(visual_list):
-            front_pos = visual_list[idx-1].pos if idx>0 else None
-            car.update(
-                current_green=self.intersection.current_green,
-                green_lanes=[self.intersection.current_green],
-                front_pos=front_pos
-            )
-            car.draw(self.screen, is_green=(car.lane_id=="L2" and r==self.intersection.current_green))
-
-
-                    # Remove vehicles that left screen
-                    self.visual_vehicles[r][l] = [
-                        v for v in visual_list
-                        if -100 < v.pos.x < WIDTH+100 and -100 < v.pos.y < HEIGHT+100
-                    ]
-
-            for event in pygame.event.get():
-                if event.type == pygame.QUIT:
-                    running = False
-
-            pygame.display.flip()
-            self.clock.tick(FPS)
 
 
 if __name__ == "__main__":
