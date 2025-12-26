@@ -4,27 +4,29 @@ import random
 from src.queue import Queue
 from src.lane import Lane
 from src.vehicle import Vehicle
-from src.intersection import Intersection
 
 # ---------------- CONFIG ----------------
 WIDTH, HEIGHT = 1000, 800
 FPS = 60
 LANE_WIDTH = 50
 ROAD_WIDTH = LANE_WIDTH * 3
+T_PER_VEHICLE = 50  # frames per vehicle for green light
 
 BG_GREEN = (24, 45, 24)
 ROAD_COLOR = (33, 33, 33)
 TEXT_COLOR = (200, 200, 200)
+PRIORITY_COLOR = (255, 0, 0)
 
 
 class VisualVehicle:
-    """Wraps your existing Vehicle for Pygame visuals."""
-    def __init__(self, vehicle, road_id, index_in_queue):
+    """Wraps your Vehicle for Pygame visuals."""
+    def __init__(self, vehicle, road_id, lane_id, index_in_queue):
         self.vehicle = vehicle
         self.road_id = road_id
+        self.lane_id = lane_id
         self.index_in_queue = index_in_queue
         self.speed = random.uniform(2, 3)
-        self.color = random.choice([
+        self.color = PRIORITY_COLOR if vehicle.priority else random.choice([
             (60, 120, 255),
             (255, 80, 80),
             (220, 220, 220),
@@ -61,102 +63,123 @@ class VisualVehicle:
         pygame.draw.rect(surf, color, rect, border_radius=5)
 
 
+class Intersection:
+    """Manages lane order and priority logic."""
+    def __init__(self, lanes):
+        self.lanes = lanes
+        self.road_order = ["A", "B", "C", "D"]
+        self.current_idx = 0
+        self.current_green = "A"
+        self.green_timer = 0
+        self.green_duration = T_PER_VEHICLE
+
+    def update(self):
+        # Check if priority lane AL2 needs green
+        priority_lane = self.lanes["A"]["L2"]
+        if priority_lane.queue_size() > 10:
+            self.current_green = "A"
+            self.green_duration = priority_lane.queue_size() * T_PER_VEHICLE
+        else:
+            # Normal round-robin
+            self.green_timer += 1
+            if self.green_timer > self.green_duration:
+                self.green_timer = 0
+                self.current_idx = (self.current_idx + 1) % len(self.road_order)
+                self.current_green = self.road_order[self.current_idx]
+                lane = self.lanes[self.current_green]["L2"]
+                self.green_duration = max(lane.queue_size() * T_PER_VEHICLE, 50)
+
+        # Process vehicle in current green lane
+        lane_to_process = self.lanes[self.current_green]["L2"]
+        lane_to_process.process_vehicle()
+
+
 class Simulation:
-    """Pygame visual simulation for your traffic system."""
+    """Pygame visual simulation for traffic system."""
     def __init__(self):
         pygame.init()
         self.screen = pygame.display.set_mode((WIDTH, HEIGHT))
-        pygame.display.set_caption("Traffic Simulation – Visual Queue")
+        pygame.display.set_caption("Traffic Simulation – Priority Queue")
         self.clock = pygame.time.Clock()
         self.font = pygame.font.SysFont("Arial", 28)
 
-        # Roads and green light control
         self.roads = ["A", "B", "C", "D"]
-        self.green_timer = 0
-        self.green_duration = 200  # frames (~3s)
-        self.current_green = "A"
 
-        # Create queues and lanes
-        self.queues = {r: Queue() for r in self.roads}
-        self.lanes = {r: Lane(r, self.queues[r]) for r in self.roads}
+        # Create 3 lanes per road
+        self.lanes = {}
+        for r in self.roads:
+            self.lanes[r] = {
+                "L1": Lane(f"{r}L1", Queue()),
+                "L2": Lane(f"{r}L2", Queue()),  # L2 is priority for A
+                "L3": Lane(f"{r}L3", Queue())
+            }
 
-        # Initialize Intersection with lanes
+        # Mark AL2 as priority
+        self.lanes["A"]["L2"].queue_priority = True
+
         self.intersection = Intersection(self.lanes)
 
-        # Spawn some demo vehicles in each lane
+        # Spawn demo vehicles
         vid = 1
-        for road in self.roads:
-            for _ in range(3):
-                v = Vehicle(vid)
-                self.lanes[road].add_vehicle(v)
-                vid += 1
+        for r in self.roads:
+            for lane_id in ["L1", "L2", "L3"]:
+                lane = self.lanes[r][lane_id]
+                for _ in range(3):
+                    v = Vehicle(vid, priority=(r=="A" and lane_id=="L2"))
+                    lane.add_vehicle(v)
+                    vid += 1
 
-        # Create visual wrappers
-        self.visual_vehicles = {r: [] for r in self.roads}
+        # Create visual vehicles
+        self.visual_vehicles = {r: {l: [] for l in ["L1","L2","L3"]} for r in self.roads}
         self.sync_visuals_with_lanes()
 
     def sync_visuals_with_lanes(self):
-        """Wrap vehicles in visual objects based on lane queues."""
-        for road in self.roads:
-            lane_queue = self.lanes[road].queue.items
-            self.visual_vehicles[road] = [
-                VisualVehicle(v, road, i) for i, v in enumerate(lane_queue)
-            ]
+        for r in self.roads:
+            for l in ["L1","L2","L3"]:
+                lane_queue = self.lanes[r][l].queue.items
+                self.visual_vehicles[r][l] = [
+                    VisualVehicle(v, r, l, i) for i, v in enumerate(lane_queue)
+                ]
 
     def draw_roads(self):
         self.screen.fill(BG_GREEN)
-        cx, cy = WIDTH // 2, HEIGHT // 2
-        # vertical
-        pygame.draw.rect(self.screen, ROAD_COLOR, (cx - ROAD_WIDTH // 2, 0, ROAD_WIDTH, HEIGHT))
-        # horizontal
-        pygame.draw.rect(self.screen, ROAD_COLOR, (0, cy - ROAD_WIDTH // 2, WIDTH, ROAD_WIDTH))
+        cx, cy = WIDTH//2, HEIGHT//2
+        pygame.draw.rect(self.screen, ROAD_COLOR, (cx - ROAD_WIDTH//2, 0, ROAD_WIDTH, HEIGHT))
+        pygame.draw.rect(self.screen, ROAD_COLOR, (0, cy - ROAD_WIDTH//2, WIDTH, ROAD_WIDTH))
 
     def draw_queue_info(self):
         y = 20
-        for road in self.roads:
-            count = self.lanes[road].queue_size()
-            text = self.font.render(f"Lane {road} Queue: {count}", True, TEXT_COLOR)
-            self.screen.blit(text, (20, y))
-            y += 35
-
-    def update_green_light(self):
-        self.green_timer += 1
-        if self.green_timer > self.green_duration:
-            self.green_timer = 0
-            idx = self.roads.index(self.current_green)
-            self.current_green = self.roads[(idx + 1) % len(self.roads)]
-
-    def process_lanes(self):
-        """Process one vehicle per lane each step (like your old text simulation)."""
-        for lane in self.lanes.values():
-            lane.process_vehicle()  # assumes Lane has a process_vehicle() method
+        for r in self.roads:
+            for l in ["L1","L2","L3"]:
+                count = self.lanes[r][l].queue_size()
+                text = self.font.render(f"{r}-{l} Queue: {count}", True, TEXT_COLOR)
+                self.screen.blit(text, (20, y))
+                y += 28
 
     def run(self):
         running = True
         while running:
-            self.update_green_light()
+            self.intersection.update()
             self.draw_roads()
             self.draw_queue_info()
 
-            # Process vehicles in lanes
-            self.process_lanes()
-
             # Update visuals
-            for road in self.roads:
-                lane_queue = self.lanes[road].queue.items
-                visual_list = self.visual_vehicles[road]
+            for r in self.roads:
+                for l in ["L1","L2","L3"]:
+                    lane_queue = self.lanes[r][l].queue.items
+                    visual_list = self.visual_vehicles[r][l]
 
-                for idx, car in enumerate(visual_list):
-                    is_green = (road == self.current_green)
-                    front_pos = visual_list[idx - 1].pos if idx > 0 else None
-                    car.update(is_green, front_pos)
-                    car.draw(self.screen, is_green)
+                    for idx, car in enumerate(visual_list):
+                        is_green = (r == self.intersection.current_green and l=="L2")
+                        front_pos = visual_list[idx-1].pos if idx>0 else None
+                        car.update(is_green, front_pos)
+                        car.draw(self.screen, is_green)
 
-                # Remove vehicles that exited screen
-                self.visual_vehicles[road] = [
-                    v for v in visual_list
-                    if -100 < v.pos.x < WIDTH + 100 and -100 < v.pos.y < HEIGHT + 100
-                ]
+                    # Remove vehicles that left screen
+                    self.visual_vehicles[r][l] = [
+                        v for v in visual_list
+                        if -100 < v.pos.x < WIDTH+100 and -100 < v.pos.y < HEIGHT+100
+                    ]
 
             for event in pygame.event.get():
                 if event.type == pygame.QUIT:
@@ -164,3 +187,7 @@ class Simulation:
 
             pygame.display.flip()
             self.clock.tick(FPS)
+
+
+if __name__ == "__main__":
+    Simulation().run()
