@@ -16,6 +16,29 @@ BG_GREEN = (24, 45, 24)
 ROAD_COLOR = (33, 33, 33)
 TEXT_COLOR = (200, 200, 200)
 PRIORITY_COLOR = (255, 0, 0)
+LIGHT_RADIUS = 15
+RED = (255, 0, 0)
+GREEN = (0, 255, 0)
+
+class TrafficLight:
+    """Manages light state for a lane."""
+    def __init__(self, green_duration=200, red_duration=200):
+        self.green_duration = green_duration
+        self.red_duration = red_duration
+        self.timer = 0
+        self.state = "RED"
+
+    def update(self):
+        self.timer += 1
+        if self.state == "GREEN" and self.timer >= self.green_duration:
+            self.state = "RED"
+            self.timer = 0
+        elif self.state == "RED" and self.timer >= self.red_duration:
+            self.state = "GREEN"
+            self.timer = 0
+
+    def is_green(self):
+        return self.state == "GREEN"
 
 
 class VisualVehicle:
@@ -64,7 +87,7 @@ class VisualVehicle:
 
 
 class Intersection:
-    """Manages lane order and priority logic."""
+    """Manages lane order, lights, and priority logic."""
     def __init__(self, lanes):
         self.lanes = lanes
         self.road_order = ["A", "B", "C", "D"]
@@ -72,26 +95,39 @@ class Intersection:
         self.current_green = "A"
         self.green_timer = 0
         self.green_duration = T_PER_VEHICLE
+        # Attach traffic lights to L2 lanes (priority lanes)
+        for r in self.road_order:
+            self.lanes[r]["L2"].light = TrafficLight(self.green_duration, self.green_duration)
 
     def update(self):
         # Check if priority lane AL2 needs green
         priority_lane = self.lanes["A"]["L2"]
         if priority_lane.queue_size() > 10:
             self.current_green = "A"
-            self.green_duration = priority_lane.queue_size() * T_PER_VEHICLE
+            self.green_duration = max(priority_lane.queue_size() * T_PER_VEHICLE, 200)
+            priority_lane.light.state = "GREEN"
+            priority_lane.light.timer = 0
         else:
             # Normal round-robin
             self.green_timer += 1
             if self.green_timer > self.green_duration:
                 self.green_timer = 0
+                # Switch green lane
                 self.current_idx = (self.current_idx + 1) % len(self.road_order)
                 self.current_green = self.road_order[self.current_idx]
                 lane = self.lanes[self.current_green]["L2"]
                 self.green_duration = max(lane.queue_size() * T_PER_VEHICLE, 50)
+                lane.light.state = "GREEN"
+                lane.light.timer = 0
+
+        # Set other lanes' lights to red
+        for r in self.road_order:
+            for l in ["L2"]:
+                if r != self.current_green:
+                    self.lanes[r][l].light.state = "RED"
 
         # Process vehicle in current green lane
-        lane_to_process = self.lanes[self.current_green]["L2"]
-        lane_to_process.process_vehicle()
+        self.lanes[self.current_green]["L2"].process_vehicle()
 
 
 class Simulation:
@@ -99,7 +135,7 @@ class Simulation:
     def __init__(self):
         pygame.init()
         self.screen = pygame.display.set_mode((WIDTH, HEIGHT))
-        pygame.display.set_caption("Traffic Simulation – Priority Queue")
+        pygame.display.set_caption("Traffic Simulation – Priority Queue with Lights")
         self.clock = pygame.time.Clock()
         self.font = pygame.font.SysFont("Arial", 28)
 
@@ -122,7 +158,7 @@ class Simulation:
         # Spawn demo vehicles
         vid = 1
         for r in self.roads:
-            for lane_id in ["L1", "L2", "L3"]:
+            for lane_id in ["L1","L2","L3"]:
                 lane = self.lanes[r][lane_id]
                 for _ in range(3):
                     v = Vehicle(vid, priority=(r=="A" and lane_id=="L2"))
@@ -147,6 +183,20 @@ class Simulation:
         pygame.draw.rect(self.screen, ROAD_COLOR, (cx - ROAD_WIDTH//2, 0, ROAD_WIDTH, HEIGHT))
         pygame.draw.rect(self.screen, ROAD_COLOR, (0, cy - ROAD_WIDTH//2, WIDTH, ROAD_WIDTH))
 
+    def draw_lights(self):
+        cx, cy = WIDTH//2, HEIGHT//2
+        positions = {
+            "A": (cx, cy - ROAD_WIDTH//2 - 30),
+            "B": (cx + ROAD_WIDTH//2 + 30, cy),
+            "C": (cx, cy + ROAD_WIDTH//2 + 30),
+            "D": (cx - ROAD_WIDTH//2 - 30, cy)
+        }
+        for r in self.roads:
+            light = self.lanes[r]["L2"].light
+            color = GREEN if light.is_green() else RED
+            pos = positions[r]
+            pygame.draw.circle(self.screen, color, pos, LIGHT_RADIUS)
+
     def draw_queue_info(self):
         y = 20
         for r in self.roads:
@@ -161,6 +211,7 @@ class Simulation:
         while running:
             self.intersection.update()
             self.draw_roads()
+            self.draw_lights()
             self.draw_queue_info()
 
             # Update visuals
