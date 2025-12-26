@@ -11,7 +11,11 @@ class Lane:
 
 
     def add_vehicle(self, vehicle):
+    if vehicle.priority:
+        self.queue.items.insert(0, vehicle)
+    else:
         self.queue.enqueue(vehicle)
+
 
     def process_vehicle(self):
         if not self.light.is_green():
