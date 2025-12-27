@@ -3,12 +3,12 @@
 import time
 from queue_ds import Queue
 
-T_PER_VEHICLE = 2   # time to pass one vehicle
+T_PER_VEHICLE = 2   # time for one vehicle
 
 
 class Simulation:
     def __init__(self):
-        # Queues for each road's L2 lane
+        # Queues for L2 lanes
         self.lanes = {
             "A": Queue(),   # AL2 = priority lane
             "B": Queue(),
@@ -19,23 +19,22 @@ class Simulation:
         self.road_order = ["A", "B", "C", "D"]
         self.current_index = 0
         self.current_green = "A"
-
         self.priority_active = False
 
-        # Fill queues with sample vehicles (for testing)
+        # Sample vehicles (for testing)
         for _ in range(8):
-            self.lanes["B"].enqueue("V")
-            self.lanes["C"].enqueue("V")
-            self.lanes["D"].enqueue("V")
+            self.lanes["B"].queue.append("V")
+            self.lanes["C"].queue.append("V")
+            self.lanes["D"].queue.append("V")
 
     def update(self):
         priority_lane = self.lanes["A"]
 
-        # RULE 1: Activate priority if > 10
+        # Rule: if AL2 > 10 → priority
         if priority_lane.size() > 10:
             self.priority_active = True
 
-        # RULE 2: Priority stays until < 5
+        # Priority stays until < 5
         if self.priority_active:
             self.current_green = "A"
             vehicles = priority_lane.size()
@@ -44,7 +43,7 @@ class Simulation:
                 self.priority_active = False
 
         else:
-            # Normal condition (round robin)
+            # Normal round robin
             self.current_index = (self.current_index + 1) % 4
             self.current_green = self.road_order[self.current_index]
 
@@ -54,18 +53,16 @@ class Simulation:
                 self.lanes["C"].size() +
                 self.lanes["D"].size()
             )
-
             vehicles = max(1, total // 3)
 
-        # Serve vehicles
         self.serve_vehicles(self.current_green, vehicles)
 
     def serve_vehicles(self, road, count):
-        print(f"GREEN LIGHT: {road} | Serving {count} vehicles")
+        print(f"GREEN: {road} | Serving {count} vehicles")
 
         for _ in range(count):
             if self.lanes[road].size() > 0:
-                self.lanes[road].dequeue()
+                self.lanes[road].queue.pop(0)
 
         time.sleep(count * T_PER_VEHICLE)
 
