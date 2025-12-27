@@ -1,5 +1,5 @@
-# run.py
-from simulation import Simulation  # visual Pygame simulation
+from simulation import Simulation
 
 if __name__ == "__main__":
-    Simulation().run()
+    sim = Simulation()
+    sim.run()

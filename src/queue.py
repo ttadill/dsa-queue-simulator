@@ -6,20 +6,12 @@ class Queue:
         self.items.append(item)
 
     def dequeue(self):
-        if self.is_empty():
-            return None
-        return self.items.pop(0)
-
-    def peek(self):
-        if self.is_empty():
-            return None
-        return self.items[0]
+        if not self.is_empty():
+            return self.items.pop(0)
+        return None
 
     def is_empty(self):
         return len(self.items) == 0
 
     def size(self):
         return len(self.items)
-
-    def __str__(self):
-        return f"Queue({self.items})"
