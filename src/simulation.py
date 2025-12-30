@@ -1,5 +1,3 @@
-# Main simulation with pygame graphics
-
 import pygame
 import random
 import time
@@ -49,13 +47,14 @@ class VisualVehicle:
         self.road = lane[0]  # A, B, C, or D
         self.pos = self.get_wait_pos(position)
         self.target = self.pos.copy()
-        self.speed = 4.0
+        self.speed = 3.5
         self.gone = False
+        self.passed_intersection = False  # track if car crossed center
     
     def get_wait_pos(self, pos):
         # calculate where car waits in queue
         cx, cy = WIDTH // 2, HEIGHT // 2
-        gap = 70
+        gap = 65
         offset = gap * pos
         
         if self.road == "A":  # top
@@ -72,24 +71,44 @@ class VisualVehicle:
         cx, cy = WIDTH // 2, HEIGHT // 2
         
         if self.road == "A":
-            return pygame.Vector2(cx - 45, cy + 300)
+            return pygame.Vector2(cx - 45, HEIGHT + 100)
         elif self.road == "B":
-            return pygame.Vector2(cx - 300, cy - 45)
+            return pygame.Vector2(-100, cy - 45)
         elif self.road == "C":
-            return pygame.Vector2(cx + 45, cy - 300)
+            return pygame.Vector2(cx + 45, -100)
         else:
-            return pygame.Vector2(cx + 300, cy + 45)
+            return pygame.Vector2(WIDTH + 100, cy + 45)
+    
+    def is_at_intersection(self):
+        # check if car is at center
+        cx, cy = WIDTH // 2, HEIGHT // 2
+        dist = ((self.pos.x - cx) ** 2 + (self.pos.y - cy) ** 2) ** 0.5
+        return dist < 100
     
     def update(self, is_green, new_pos):
-        # update car position
+        # update car position - CONTINUOUS MOVEMENT WHEN GREEN
         self.position = new_pos
         
-        if is_green and new_pos == 0:
-            # first in line with green - move through
-            self.target = self.get_exit_pos()
+        if is_green:
+            # GREEN LIGHT - ALL CARS MOVE FORWARD CONTINUOUSLY
+            if not self.passed_intersection:
+                # move towards and through intersection
+                self.target = self.get_exit_pos()
+                
+                # check if passed center
+                if self.is_at_intersection():
+                    self.passed_intersection = True
+            else:
+                # already passed, keep moving to exit
+                self.target = self.get_exit_pos()
         else:
-            # waiting in line
-            self.target = self.get_wait_pos(new_pos)
+            # RED LIGHT - WAIT IN QUEUE
+            if not self.passed_intersection:
+                # stay in waiting position
+                self.target = self.get_wait_pos(new_pos)
+            else:
+                # already through intersection, keep going
+                self.target = self.get_exit_pos()
         
         # move towards target
         diff = self.target - self.pos
@@ -99,8 +118,9 @@ class VisualVehicle:
             diff.normalize_ip()
             self.pos += diff * self.speed
         
-        # check if left screen
-        if is_green and new_pos == 0 and dist < 10:
+        # check if completely off screen
+        if (self.pos.x < -150 or self.pos.x > WIDTH + 150 or
+            self.pos.y < -150 or self.pos.y > HEIGHT + 150):
             self.gone = True
     
     def draw(self, screen, is_green):
@@ -108,11 +128,11 @@ class VisualVehicle:
         w, h = 50, 32
         surf = pygame.Surface((w, h), pygame.SRCALPHA)
         
-        # darker if waiting
-        if is_green and self.position == 0:
+        # brighter when moving, darker when stopped
+        if is_green or self.passed_intersection:
             color = self.color
         else:
-            color = tuple(max(0, c - 60) for c in self.color)
+            color = tuple(max(0, c - 80) for c in self.color)
         
         # car body
         pygame.draw.rect(surf, color, (0, 0, w, h), border_radius=8)
@@ -162,6 +182,9 @@ class Simulation:
         self.green_timer = 0
         self.green_duration = GREEN_TIME
         
+        # set initial green light
+        self.lights["AL2"].set_green()
+        
         # generator
         self.generator = TrafficGenerator()
         self.last_gen = time.time()
@@ -175,9 +198,14 @@ class Simulation:
         self.start_time = time.time()
         self.last_update = time.time()
         
+        # track served vehicles per cycle
+        self.served_this_cycle = {lane: 0 for lane in self.lanes}
+        
         print("\n" + "="*60)
         print("Traffic Simulation Started")
         print("="*60)
+        print("GREEN LIGHT = All vehicles move continuously")
+        print("RED LIGHT = Vehicles wait in queue")
         print("Press ESC to quit\n")
     
     def generate_vehicle(self):
@@ -208,42 +236,38 @@ class Simulation:
             self.lane_queue.update_priority("AL2", 1)  # normal
             print(f"\nNORMAL MODE - AL2 has {al2_size} cars\n")
     
-    def calculate_serve_count(self):
-        # how many vehicles to serve
-        if self.priority_mode and self.current_green == "AL2":
-            # serve all from AL2
-            return self.queues["AL2"].size()
-        else:
-            # average of BL2, CL2, DL2
-            total = (self.queues["BL2"].size() + 
-                    self.queues["CL2"].size() + 
-                    self.queues["DL2"].size())
-            avg = total // 3 if total > 0 else 0
-            return max(1, avg) if self.queues[self.current_green].size() > 0 else 0
-    
-    def serve_vehicles(self):
-        # remove vehicles from queue
-        count = self.calculate_serve_count()
-        queue = self.queues[self.current_green]
-        
-        if count == 0 or queue.is_empty():
-            return
-        
-        actual = min(count, queue.size())
-        print(f"GREEN: {self.current_green} - Serving {actual} cars")
-        
-        for _ in range(actual):
-            car = queue.dequeue()
-            if car:
-                wait = car.calculate_wait()
-                self.total_served += 1
-                self.stats[self.current_green]["served"] += 1
-                self.stats[self.current_green]["wait"] += wait
+    def remove_served_vehicles(self):
+        # remove vehicles that passed through intersection
+        for lane in self.lanes:
+            queue = self.queues[lane]
+            visuals = self.visual_cars[lane]
+            
+            # count how many passed
+            passed = 0
+            for visual in visuals:
+                if visual.passed_intersection and visual.vehicle in queue.items:
+                    passed += 1
+            
+            # remove from queue
+            for _ in range(passed):
+                if not queue.is_empty():
+                    car = queue.dequeue()
+                    if car:
+                        wait = car.calculate_wait()
+                        self.total_served += 1
+                        self.stats[lane]["served"] += 1
+                        self.stats[lane]["wait"] += wait
+                        self.served_this_cycle[lane] += 1
     
     def switch_light(self):
+        # report how many served this cycle
+        for lane in self.lanes:
+            if self.served_this_cycle[lane] > 0:
+                print(f"GREEN: {lane} - Served {self.served_this_cycle[lane]} cars")
+                self.served_this_cycle[lane] = 0
+        
         # change to next lane
         current = self.lane_queue.dequeue()
-        self.serve_vehicles()
         
         # put back in queue
         if self.priority_mode and current == "AL2":
@@ -280,7 +304,10 @@ class Simulation:
         if self.green_timer >= self.green_duration:
             self.switch_light()
         
-        # update visual cars
+        # remove vehicles that passed through
+        self.remove_served_vehicles()
+        
+        # update visual cars - ALL MOVE WHEN GREEN
         for lane in self.lanes:
             items = self.queues[lane].items
             is_green = self.lights[lane].is_green()
@@ -290,7 +317,8 @@ class Simulation:
                     pos = items.index(car.vehicle)
                     car.update(is_green, pos)
                 except ValueError:
-                    car.gone = True
+                    # vehicle already passed, keep moving
+                    car.update(is_green, -1)
             
             # remove gone cars
             self.visual_cars[lane] = [c for c in self.visual_cars[lane] if not c.gone]
@@ -343,7 +371,7 @@ class Simulation:
     def draw_panel(self):
         # info panel on right
         x, y = WIDTH - 380, 20
-        w, h = 360, 500
+        w, h = 360, 520
         
         # background
         s = pygame.Surface((w, h), pygame.SRCALPHA)
@@ -384,7 +412,8 @@ class Simulation:
         for lane in self.lanes:
             size = self.queues[lane].size()
             mark = " *" if lane == "AL2" and self.priority_mode else ""
-            text = self.font_small.render(f"{lane}: {size}{mark}", True, WHITE)
+            light_status = "🟢" if self.lights[lane].is_green() else "🔴"
+            text = self.font_small.render(f"{light_status} {lane}: {size}{mark}", True, WHITE)
             self.screen.blit(text, (x + 10, y))
             y += 28
         
@@ -401,6 +430,14 @@ class Simulation:
         runtime = time.time() - self.start_time
         text = self.font_small.render(f"Runtime: {int(runtime)}s", True, WHITE)
         self.screen.blit(text, (x + 10, y))
+        y += 35
+        
+        # instruction
+        text = self.font_small.render("GREEN = All cars move", True, (150, 255, 150))
+        self.screen.blit(text, (x, y))
+        y += 25
+        text = self.font_small.render("RED = Cars wait", True, (255, 150, 150))
+        self.screen.blit(text, (x, y))
     
     def draw_cars(self):
         # draw all vehicles
