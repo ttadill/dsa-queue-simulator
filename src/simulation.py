@@ -1,3 +1,6 @@
+
+# Main simulation with pygame graphics
+
 import pygame
 import random
 import time
@@ -47,7 +50,7 @@ class VisualVehicle:
         self.road = lane[0]  # A, B, C, or D
         self.pos = self.get_wait_pos(position)
         self.target = self.pos.copy()
-        self.speed = 3.5
+        self.speed = 6.0  # faster movement
         self.gone = False
         self.passed_intersection = False  # track if car crossed center
     
@@ -182,8 +185,9 @@ class Simulation:
         self.green_timer = 0
         self.green_duration = GREEN_TIME
         
-        # set initial green light
+        # set initial green lights (A and C together)
         self.lights["AL2"].set_green()
+        self.lights["CL2"].set_green()
         
         # generator
         self.generator = TrafficGenerator()
@@ -204,8 +208,9 @@ class Simulation:
         print("\n" + "="*60)
         print("Traffic Simulation Started")
         print("="*60)
-        print("GREEN LIGHT = All vehicles move continuously")
-        print("RED LIGHT = Vehicles wait in queue")
+        print("✓ Opposite roads GREEN together (A+C or B+D)")
+        print("✓ All vehicles move continuously when GREEN")
+        print("✓ AL2 priority activates when >10 vehicles")
         print("Press ESC to quit\n")
     
     def generate_vehicle(self):
@@ -259,6 +264,11 @@ class Simulation:
                         self.stats[lane]["wait"] += wait
                         self.served_this_cycle[lane] += 1
     
+    def get_opposite_lane(self, lane):
+        # get opposite road (A opposite C, B opposite D)
+        opposites = {"AL2": "CL2", "CL2": "AL2", "BL2": "DL2", "DL2": "BL2"}
+        return opposites.get(lane, None)
+    
     def switch_light(self):
         # report how many served this cycle
         for lane in self.lanes:
@@ -266,24 +276,35 @@ class Simulation:
                 print(f"GREEN: {lane} - Served {self.served_this_cycle[lane]} cars")
                 self.served_this_cycle[lane] = 0
         
-        # change to next lane
+        # change to next lane pair
         current = self.lane_queue.dequeue()
         
         # put back in queue
         if self.priority_mode and current == "AL2":
             self.lane_queue.enqueue(current, 0)
+            self.current_green = "AL2"  # only AL2 in priority mode
         else:
             self.lane_queue.enqueue(current, 1)
+            self.current_green = current
         
-        self.current_green = self.lane_queue.front()
         self.green_timer = 0
         
-        # update lights
+        # update lights - TWO OPPOSITE ROADS CAN BE GREEN
+        opposite = self.get_opposite_lane(self.current_green)
+        
         for lane in self.lanes:
-            if lane == self.current_green:
-                self.lights[lane].set_green()
+            # in priority mode, only AL2 is green
+            if self.priority_mode:
+                if lane == "AL2":
+                    self.lights[lane].set_green()
+                else:
+                    self.lights[lane].set_red()
             else:
-                self.lights[lane].set_red()
+                # normal mode: current lane + opposite lane both green
+                if lane == self.current_green or lane == opposite:
+                    self.lights[lane].set_green()
+                else:
+                    self.lights[lane].set_red()
     
     def update(self):
         # main update logic
@@ -335,14 +356,19 @@ class Simulation:
         pygame.draw.rect(self.screen, ROAD_COLOR, 
                         (0, cy - ROAD_WIDTH//2, WIDTH, ROAD_WIDTH))
         
+        # intersection box (white square in center like friend's image)
+        box_size = 140
+        pygame.draw.rect(self.screen, WHITE,
+                        (cx - box_size//2, cy - box_size//2, box_size, box_size), 3)
+        
         # lane lines
         for y in range(0, HEIGHT, 35):
-            if y < cy - ROAD_WIDTH//2 or y > cy + ROAD_WIDTH//2:
+            if y < cy - ROAD_WIDTH//2 - 20 or y > cy + ROAD_WIDTH//2 + 20:
                 pygame.draw.line(self.screen, LANE_LINE, 
                                (cx, y), (cx, y + 20), 3)
         
         for x in range(0, WIDTH, 35):
-            if x < cx - ROAD_WIDTH//2 or x > cx + ROAD_WIDTH//2:
+            if x < cx - ROAD_WIDTH//2 - 20 or x > cx + ROAD_WIDTH//2 + 20:
                 pygame.draw.line(self.screen, LANE_LINE, 
                                (x, cy), (x + 20, cy), 3)
     
@@ -394,7 +420,13 @@ class Simulation:
         y += 40
         
         # current green
-        text = self.font_med.render(f"Green: {self.current_green}", True, GREEN_LIGHT)
+        if self.priority_mode:
+            green_text = f"Green: {self.current_green}"
+        else:
+            opposite = self.get_opposite_lane(self.current_green)
+            green_text = f"Green: {self.current_green} + {opposite}"
+        
+        text = self.font_med.render(green_text, True, GREEN_LIGHT)
         self.screen.blit(text, (x, y))
         y += 35
         
